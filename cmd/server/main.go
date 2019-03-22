@@ -37,12 +37,10 @@ func (hs *HelloServer) sayHello(req *hello.HelloRequest) *hello.HelloResponse {
 }
 
 func main() {
-	var serverID string
+	serverID := os.Getenv("serverId")
 
-	if len(os.Args) > 1 {
-		serverID = os.Args[1]
-	} else {
-		log.Fatal("Need to provide a server id")
+	if len(serverID) == 0 {
+		log.Fatal("Need to provide a server id via the 'serverId' enviroment variable")
 	}
 
 	log.Printf("Starting server with id %q...\n", serverID)

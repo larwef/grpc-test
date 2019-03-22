@@ -11,9 +11,25 @@ Parameters:
     Type: String
     Default: 10.0.1.0/24
 
-  PrivateSubnetCIDR:
+  ClusterName:
     Type: String
-    Default: 10.0.2.0/24
+    Default: grpcCluster
+
+  ImageId:
+    Type: String
+    Default: ami-0b8e62ddc09226d0a
+
+  KeyName:
+    Type: String
+    Default: MyEC2KeyPair
+
+  SpotFleetMinCapacity:
+    Type: String
+    Default: 1
+
+  SpotFleetMaxCapacity:
+    Type: String
+    Default: 2
 
 Resources:
   # VPC
@@ -61,45 +77,6 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet
 
-  # Private subnet
-  NatGatewayEIP:
-    Type: AWS::EC2::EIP
-    DependsOn: InternetGatewayAttachment
-    Properties:
-        Domain: vpc
-      
-  NatGateway:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      AllocationId: !GetAtt NatGatewayEIP.AllocationId
-      SubnetId: !Ref PublicSubnet
-
-  PrivateRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref VPC
-
-  DefaultPrivateRoute:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway
-
-  PrivateSubnet:
-    Type: AWS::EC2::Subnet
-    Properties:
-        VpcId: !Ref VPC
-        AvailabilityZone: !Select [ 0, !GetAZs ]
-        CidrBlock: !Ref PrivateSubnetCIDR
-        MapPublicIpOnLaunch: false
-
-  PrivateSubnetRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable
-      SubnetId: !Ref PrivateSubnet
-
   # Security Groups
   PublicSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -113,15 +90,146 @@ Resources:
           FromPort: 22
           ToPort: 22
   
-  PrivateSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
+  # IAM
+  EC2SpotFleetRole:
+    Type: AWS::IAM::Role
     Properties:
-      VpcId: !Ref VPC
-      GroupDescription: Security group for the private subnet. Accessable from the public subnet.
-      SecurityGroupIngress:
-        - Description: SSH Access
-          SourceSecurityGroupId: !Ref PublicSecurityGroup
-          IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-      
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: spotfleet.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2SpotFleetRole
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2SpotFleetTaggingRole
+      Path: /
+
+  ECSInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+      Path: /
+
+  ECSInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref ECSInstanceRole
+
+  # ECS
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+        ClusterName: !Ref ClusterName
+
+  SpotFleet:
+    Type: AWS::EC2::SpotFleet
+    Properties:
+      SpotFleetRequestConfigData:
+        AllocationStrategy: lowestPrice
+        ExcessCapacityTerminationPolicy: default
+        IamFleetRole: !GetAtt EC2SpotFleetRole.Arn
+        SpotPrice: 0.01
+        TargetCapacity: !Ref SpotFleetMaxCapacity
+        TerminateInstancesWithExpiration: true
+        LaunchSpecifications:
+          - BlockDeviceMappings:
+            # Volume used by docker. Accessed directly by docker. Does not need to be mounted.
+            # By default you get a 22GiB volume, this is just an override.
+            - DeviceName: /dev/xvdcz
+              Ebs:
+                Encrypted: true
+                VolumeSize: 25
+                VolumeType: gp2
+            EbsOptimized: false
+            IamInstanceProfile:
+              Arn: !GetAtt ECSInstanceProfile.Arn
+            ImageId: !Ref ImageId
+            InstanceType: t2.micro
+            KeyName: !Ref KeyName
+            Monitoring:
+              Enabled: true
+            SecurityGroups:
+              - GroupId: !Ref PublicSecurityGroup
+            SubnetId: !Ref PublicSubnet
+            TagSpecifications:
+              - ResourceType: instance
+                Tags:
+                  - Key: Name
+                    Value: !Ref ClusterName
+            UserData:
+              Fn::Base64:
+                !Sub |
+                  #!/bin/bash
+                  echo ECS_CLUSTER=${ClusterName} >> /etc/ecs/ecs.config
+          - BlockDeviceMappings:
+            # Volume used by docker. Accessed directly by docker. Does not need to be mounted.
+            # By default you get a 22GiB volume, this is just an override.
+            - DeviceName: /dev/xvdcz
+              Ebs:
+                Encrypted: true
+                VolumeSize: 25
+                VolumeType: gp2
+            EbsOptimized: false
+            IamInstanceProfile:
+              Arn: !GetAtt ECSInstanceProfile.Arn
+            ImageId: !Ref ImageId
+            InstanceType: t2.small
+            KeyName: !Ref KeyName
+            Monitoring:
+              Enabled: true
+            SecurityGroups:
+              - GroupId: !Ref PublicSecurityGroup
+            SubnetId: !Ref PublicSubnet
+            TagSpecifications:
+              - ResourceType: instance
+                Tags:
+                  - Key: Name
+                    Value: !Ref ClusterName
+            UserData:
+              Fn::Base64:
+                !Sub |
+                  #!/bin/bash
+                  echo ECS_CLUSTER=${ClusterName} >> /etc/ecs/ecs.config
+          - BlockDeviceMappings:
+            # Volume used by docker. Accessed directly by docker. Does not need to be mounted.
+            # By default you get a 22GiB volume, this is just an override.
+            - DeviceName: /dev/xvdcz
+              Ebs:
+                Encrypted: true
+                VolumeSize: 25
+                VolumeType: gp2
+            EbsOptimized: false
+            IamInstanceProfile:
+              Arn: !GetAtt ECSInstanceProfile.Arn
+            ImageId: !Ref ImageId
+            InstanceType: a1.medium
+            KeyName: !Ref KeyName
+            Monitoring:
+              Enabled: true
+            SecurityGroups:
+              - GroupId: !Ref PublicSecurityGroup
+            SubnetId: !Ref PublicSubnet
+            TagSpecifications:
+              - ResourceType: instance
+                Tags:
+                  - Key: Name
+                    Value: !Ref ClusterName
+            UserData:
+              Fn::Base64:
+                !Sub |
+                  #!/bin/bash
+                  echo ECS_CLUSTER=${ClusterName} >> /etc/ecs/ecs.config
+
+

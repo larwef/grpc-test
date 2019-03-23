@@ -17,6 +17,7 @@ var defaultMessage = "Hello from client"
 var message = flag.String("m", "", "Message to send")
 
 func main() {
+	startProgram := time.Now()
 	flag.Parse()
 
 	log.Println("Starting client...")
@@ -38,7 +39,7 @@ func main() {
 
 	client := hello.NewHelloServiceClient(conn)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	req := &hello.HelloRequest{
@@ -51,6 +52,10 @@ func main() {
 	} else {
 		log.Printf("Response from server %q: %s\n", res.ServerID, res.Response)
 	}
+
+	now := time.Now()
+	log.Printf("Call took: %v\n", now.Sub(startProgram))
+	log.Printf("Program took: %v\n", now.Sub(startProgram))
 
 	log.Println("Client exited.")
 }

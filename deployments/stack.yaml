@@ -31,6 +31,14 @@ Parameters:
     Type: String
     Default: 2
 
+  LogGroupName:
+    Type: String
+    Default: grpc-test/server
+
+  ServerDesiredCount:
+    Type: Number
+    Default: 1
+
 Resources:
   # VPC
   VPC:
@@ -232,4 +240,70 @@ Resources:
                   #!/bin/bash
                   echo ECS_CLUSTER=${ClusterName} >> /etc/ecs/ecs.config
 
+  # GRPC Test Service
+  GrpcTestServerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Ref LogGroupName
 
+  GrpcTestServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: [
+                  "logs:CreateLogGroup",
+                  "logs:CreateLogStream",
+                  "logs:PutLogEvents",
+                  "logs:DescribeLogStreams"
+                ]
+                Resource: !GetAtt GrpcTestServerLogGroup.Arn
+
+  GrpcTestServerTask:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: grpc-test-server
+      NetworkMode: bridge
+      TaskRoleArn: !GetAtt GrpcTestServerRole.Arn
+      ContainerDefinitions:
+        - Name: grpc-test-server
+          Cpu: 256
+          Environment:
+            - Name: serverId
+              Value: server1
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/grpc-test
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroupName
+              awslogs-region: !Sub ${AWS::Region}
+          Memory: 2048 # Hard limit
+          MemoryReservation: 512 # Soft limit
+          PortMappings:
+            - ContainerPort: 8080
+              HostPort: 8080
+              Protocol: tcp
+          Privileged: false
+            
+  GrpcTestServerService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !GetAtt ECSCluster.Arn
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      DesiredCount: !Ref ServerDesiredCount
+      LaunchType: EC2
+      TaskDefinition: !Ref GrpcTestServerTask

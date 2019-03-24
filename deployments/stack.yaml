@@ -7,9 +7,21 @@ Parameters:
     Type: String
     Default: 10.0.0.0/16
 
-  PublicSubnetCIDR:
+  PublicSubnet1CIDR:
     Type: String
     Default: 10.0.1.0/24
+
+  PublicSubnet2CIDR:
+    Type: String
+    Default: 10.0.2.0/24
+
+  PublicSubnet3CIDR:
+    Type: String
+    Default: 10.0.3.0/24
+
+  SSHIP:
+    Type: String
+    Default: 0.0.0.0/0
 
   ClusterName:
     Type: String
@@ -37,7 +49,16 @@ Parameters:
 
   ServerDesiredCount:
     Type: Number
-    Default: 1
+    Default: 2
+
+  GrpcTestServerPort:
+    Type: Number
+    Default: 8080
+
+  GrpcTestServerHealthPort:
+    Type: Number
+    Default: 8081
+
 
 Resources:
   # VPC
@@ -71,21 +92,64 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
 
-  PublicSubnet:
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+        VpcId: !Ref VPC
+        AvailabilityZone: !Select [ 0, !GetAZs ]
+        CidrBlock: !Ref PublicSubnet1CIDR
+        MapPublicIpOnLaunch: true
+  
+  PublicSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
         VpcId: !Ref VPC
         AvailabilityZone: !Select [ 1, !GetAZs ]
-        CidrBlock: !Ref PublicSubnetCIDR
+        CidrBlock: !Ref PublicSubnet2CIDR
+        MapPublicIpOnLaunch: true
+  
+  PublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+        VpcId: !Ref VPC
+        AvailabilityZone: !Select [ 2, !GetAZs ]
+        CidrBlock: !Ref PublicSubnet3CIDR
         MapPublicIpOnLaunch: true
 
-  PublicSubnetRouteTableAssociation:
+  PublicSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       RouteTableId: !Ref PublicRouteTable
-      SubnetId: !Ref PublicSubnet
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  PublicSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet3
 
   # Security Groups
+  PublicALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Security group for access to load balancer
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+
   PublicSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -93,11 +157,40 @@ Resources:
       GroupDescription: Security group for the public subnet
       SecurityGroupIngress:
         - Description: SSH Access
-          CidrIp: 0.0.0.0/0
+          CidrIp: !Ref SSHIP
           IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-  
+        - SourceSecurityGroupId: !Ref PublicALBSecurityGroup
+          IpProtocol: -1
+
+  # ALB
+  PublicALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      SecurityGroups: [ !Ref PublicALBSecurityGroup ]
+      Subnets: [ !Ref PublicSubnet1, !Ref PublicSubnet2, !Ref PublicSubnet3 ]
+
+  PublicALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 8080
+      Protocol: HTTPS
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 30
+      VpcId: !Ref VPC
+    
+  PublicALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref PublicALBTargetGroup
+      LoadBalancerArn: !Ref PublicALB
+      Port: 80
+      Protocol: HTTP
+
   # IAM
   EC2SpotFleetRole:
     Type: AWS::IAM::Role
@@ -170,7 +263,7 @@ Resources:
               Enabled: true
             SecurityGroups:
               - GroupId: !Ref PublicSecurityGroup
-            SubnetId: !Ref PublicSubnet
+            SubnetId: !Join [",", [!Ref PublicSubnet1, !Ref PublicSubnet2, !Ref PublicSubnet3]]
             TagSpecifications:
               - ResourceType: instance
                 Tags:
@@ -199,7 +292,7 @@ Resources:
               Enabled: true
             SecurityGroups:
               - GroupId: !Ref PublicSecurityGroup
-            SubnetId: !Ref PublicSubnet
+            SubnetId: !Join [",", [!Ref PublicSubnet1, !Ref PublicSubnet2, !Ref PublicSubnet3]]
             TagSpecifications:
               - ResourceType: instance
                 Tags:
@@ -228,7 +321,7 @@ Resources:
               Enabled: true
             SecurityGroups:
               - GroupId: !Ref PublicSecurityGroup
-            SubnetId: !Ref PublicSubnet
+            SubnetId: !Join [",", [!Ref PublicSubnet1, !Ref PublicSubnet2, !Ref PublicSubnet3]]
             TagSpecifications:
               - ResourceType: instance
                 Tags:
@@ -283,27 +376,68 @@ Resources:
           Environment:
             - Name: serverId
               Value: server1
+            - Name: port
+              Value: !Ref GrpcTestServerPort
+            - Name: healthPort
+              Value: !Ref GrpcTestServerHealthPort
           Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/grpc-test
           LogConfiguration:
             LogDriver: awslogs
             Options:
               awslogs-group: !Ref LogGroupName
               awslogs-region: !Sub ${AWS::Region}
-          Memory: 2048 # Hard limit
-          MemoryReservation: 512 # Soft limit
+          Memory: 512 # Hard limit
+          MemoryReservation: 256 # Soft limit
           PortMappings:
-            - ContainerPort: 8080
-              HostPort: 8080
+            - ContainerPort: !Ref GrpcTestServerPort
+              HostPort: !Ref GrpcTestServerPort
+              Protocol: tcp
+            - ContainerPort: !Ref GrpcTestServerHealthPort
+              HostPort: !Ref GrpcTestServerHealthPort
               Protocol: tcp
           Privileged: false
-            
+  
+  GrpcTestServerTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /health
+      HealthCheckPort: !Ref GrpcTestServerHealthPort
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      Port: !Ref GrpcTestServerPort
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 30
+      VpcId: !Ref VPC
+  
+  GrpcTestServerListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+        Actions:
+          - Type: forward
+            TargetGroupArn: !Ref GrpcTestServerTargetGroup
+        Conditions:
+          - Field: path-pattern
+            Values:
+              - "/*"
+        ListenerArn: !Ref PublicALBListener
+        Priority: 1
+
   GrpcTestServerService:
     Type: AWS::ECS::Service
+    DependsOn: GrpcTestServerListenerRule
     Properties:
       Cluster: !GetAtt ECSCluster.Arn
       DeploymentConfiguration:
         MaximumPercent: 200
         MinimumHealthyPercent: 50
       DesiredCount: !Ref ServerDesiredCount
+      LoadBalancers:
+        - ContainerName: grpc-test-server
+          ContainerPort: !Ref GrpcTestServerPort
+          TargetGroupArn: !Ref GrpcTestServerTargetGroup
       LaunchType: EC2
       TaskDefinition: !Ref GrpcTestServerTask

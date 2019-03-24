@@ -15,9 +15,6 @@ COPY target/linux/server $HOME/app
 RUN chmod 755 $HOME/*.sh && \
     chown -R $USER $HOME
 
-## Expose application port
-EXPOSE 8080 8080
-
 USER $USER
 WORKDIR /home/$USER
 CMD ["./runapp.sh"]

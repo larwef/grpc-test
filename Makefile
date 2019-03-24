@@ -1,3 +1,5 @@
+PORT=8080
+HEALTH_PORT=8081
 SERVER_ID=server1
 PROFILE=larwef
 REGION=eu-west-1
@@ -10,13 +12,13 @@ docker: build-docker run-docker
 
 # Run locally
 run-server:
-	serverId=$(SERVER_ID) go run cmd/server/main.go
+	port=$(PORT) healthPort=$(HEALTH_PORT) serverId=$(SERVER_ID) go run cmd/server/main.go
 
 run-client:
 	go run cmd/client/main.go
 
 run-docker:
-	docker run -it --rm -p 8080:8080 -e serverId=$(SERVER_ID) go-grpc-test-server
+	docker run -it --rm -p 8080:8080 -p 8081:8081 -e serverId=$(SERVER_ID) go-grpc-test-server
 
 # Generate grpc code
 proto:

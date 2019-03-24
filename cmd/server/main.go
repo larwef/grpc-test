@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 
 	hello "github.com/larwef/grpc-test/internal/hello"
@@ -36,16 +38,37 @@ func (hs *HelloServer) sayHello(req *hello.HelloRequest) *hello.HelloResponse {
 	}
 }
 
-func main() {
-	serverID := os.Getenv("serverId")
+func httpHandler(res http.ResponseWriter, req *http.Request) {
+	io.WriteString(res, "Ok")
+}
 
-	if len(serverID) == 0 {
+func main() {
+	port, exists := os.LookupEnv("port")
+	if !exists {
+		log.Fatal("Need to provide a port via the 'port' enviroment variable")
+	}
+
+	healthPort, exists := os.LookupEnv("healthPort")
+	if !exists {
+		log.Fatal("Need to provide a healthPort via the 'healthPort' enviroment variable")
+	}
+
+	http.HandleFunc("/", httpHandler)
+	go func() {
+		log.Println("Starting health route on :" + healthPort + "/health")
+		if err := http.ListenAndServe(":"+healthPort, nil); err != nil {
+			log.Fatalf("Error starting health route: %v", err)
+		}
+	}()
+
+	serverID, exists := os.LookupEnv("serverId")
+	if !exists {
 		log.Fatal("Need to provide a server id via the 'serverId' enviroment variable")
 	}
 
 	log.Printf("Starting server with id %q...\n", serverID)
 
-	listener, err := net.Listen("tcp", ":8080")
+	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}

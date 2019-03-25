@@ -165,6 +165,10 @@ Resources:
           ToPort: 22
         - CidrIp: !Ref VpcCIDR
           IpProtocol: -1
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          FromPort: !Ref GrpcTestServerPort
+          ToPort: !Ref GrpcTestServerPort
 
   # NLB
   PublicNLB:
@@ -178,17 +182,6 @@ Resources:
         - AllocationId: !GetAtt PublicSubnet3EIP.AllocationId
           SubnetId: !Ref PublicSubnet3
       Type: network
-
-  PublicNLBTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      Port: 8080
-      # Protocol: TLS
-      Protocol: TCP
-      TargetGroupAttributes:
-        - Key: deregistration_delay.timeout_seconds
-          Value: 30
-      VpcId: !Ref VPC
 
   # IAM
   EC2SpotFleetRole:

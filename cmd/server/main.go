@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/google/uuid"
 	hello "github.com/larwef/grpc-test/internal/hello"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -61,10 +62,7 @@ func main() {
 		}
 	}()
 
-	serverID, exists := os.LookupEnv("serverId")
-	if !exists {
-		log.Fatal("Need to provide a server id via the 'serverId' enviroment variable")
-	}
+	serverID := uuid.New().String()
 
 	log.Printf("Starting server with id %q...\n", serverID)
 

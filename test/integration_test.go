@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"log"
+	"strconv"
 	"testing"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 )
 
 var address = "<yourNLBaddress>:<yourPort>"
+
+var iterations = 100
 
 func getClient() (hello.HelloServiceClient, func() error) {
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -44,4 +47,42 @@ func Test_SingleCall(t *testing.T) {
 	}
 
 	t.Logf("Successfull call to server %s", serverID)
+}
+
+func Test_MultipleCallsOneConnection(t *testing.T) {
+	client, close := getClient()
+	defer close()
+
+	servers := make(map[string]int)
+	for i := 0; i < iterations; i++ {
+		serverID, err := doCall(client, "TestMessage "+strconv.Itoa(i))
+		if err != nil {
+			t.Errorf("Error: %v", err)
+		}
+		servers[serverID]++
+	}
+
+	t.Log("Hit the following servers:")
+	for k, v := range servers {
+		t.Logf("%s: %d", k, v)
+	}
+}
+
+func Test_MultipleCallsMultipleConnections(t *testing.T) {
+	servers := make(map[string]int)
+	for i := 0; i < iterations; i++ {
+		client, close := getClient()
+
+		serverID, err := doCall(client, "TestMessage "+strconv.Itoa(i))
+		if err != nil {
+			t.Errorf("Error: %v", err)
+		}
+		close()
+		servers[serverID]++
+	}
+
+	t.Log("Hit the following servers:")
+	for k, v := range servers {
+		t.Logf("%s: %d", k, v)
+	}
 }

@@ -46,8 +46,8 @@ upload-docker:
 	$$(aws ecr get-login --no-include-email --profile $(PROFILE) --region $(REGION))
 	docker push $(ECS_REPO)
 
+# Test caching is useful, but dont want it for these tests. Using non-cacheable flag.
 # PHONY used to mitigate conflict with dir name test
 .PHONY: test
 test:
-	# Test caching is useful, but dont want it for these tests. Using non-cacheable flag.
 	go test -v -count=1 ./...

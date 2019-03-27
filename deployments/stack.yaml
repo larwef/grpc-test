@@ -19,7 +19,11 @@ Parameters:
     Type: String
     Default: 10.0.3.0/24
 
-  SSHIP:
+  SSHAccessCIDR:
+    Type: String
+    Default: 0.0.0.0/0
+
+  ServerAccessCIDR:
     Type: String
     Default: 0.0.0.0/0
 
@@ -58,27 +62,8 @@ Parameters:
     Type: Number
     Default: 8080
 
-  GrpcTestServerHealthPort:
-    Type: Number
-    Default: 8081
-
 Resources:
   # VPC
-  PublicSubnet1EIP:
-    Type: AWS::EC2::EIP
-    Properties:
-        Domain: vpc
-  
-  PublicSubnet2EIP:
-    Type: AWS::EC2::EIP
-    Properties:
-        Domain: vpc
-
-  PublicSubnet3EIP:
-    Type: AWS::EC2::EIP
-    Properties:
-        Domain: vpc
-
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -151,6 +136,24 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet3
 
+  PublicSubnet1EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+        Domain: vpc
+  
+  PublicSubnet2EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+        Domain: vpc
+
+  PublicSubnet3EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+        Domain: vpc
+
   # Security Groups
   PublicSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -159,16 +162,16 @@ Resources:
       GroupDescription: Security group for the public subnet
       SecurityGroupIngress:
         - Description: SSH Access
-          CidrIp: !Ref SSHIP
+          CidrIp: !Ref SSHAccessCIDR
           IpProtocol: tcp
           FromPort: 22
           ToPort: 22
         - CidrIp: !Ref VpcCIDR
           IpProtocol: -1
-        - CidrIp: 0.0.0.0/0
+        - CidrIp: !Ref ServerAccessCIDR
           IpProtocol: tcp
-          FromPort: !Ref GrpcTestServerPort
-          ToPort: !Ref GrpcTestServerPort
+          FromPort: 32768
+          ToPort: 65535
 
   # NLB
   PublicNLB:
@@ -230,10 +233,10 @@ Resources:
     Type: AWS::EC2::SpotFleet
     Properties:
       SpotFleetRequestConfigData:
-        AllocationStrategy: lowestPrice
+        AllocationStrategy: diversified
         ExcessCapacityTerminationPolicy: default
         IamFleetRole: !GetAtt EC2SpotFleetRole.Arn
-        SpotPrice: 0.01
+        SpotPrice: 0.05
         TargetCapacity: !Ref SpotFleetMaxCapacity
         TerminateInstancesWithExpiration: true
         LaunchSpecifications:
@@ -368,8 +371,6 @@ Resources:
           Environment:
             - Name: port
               Value: !Ref GrpcTestServerPort
-            - Name: healthPort
-              Value: !Ref GrpcTestServerHealthPort
           Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/grpc-test
           LogConfiguration:
             LogDriver: awslogs
@@ -380,10 +381,7 @@ Resources:
           MemoryReservation: 256 # Soft limit
           PortMappings:
             - ContainerPort: !Ref GrpcTestServerPort
-              HostPort: !Ref GrpcTestServerPort
-              Protocol: tcp
-            - ContainerPort: !Ref GrpcTestServerHealthPort
-              HostPort: !Ref GrpcTestServerHealthPort
+              HostPort: 0
               Protocol: tcp
           Privileged: false
   
@@ -391,15 +389,16 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       HealthCheckIntervalSeconds: 10
-      HealthCheckPath: /health
-      HealthCheckPort: !Ref GrpcTestServerHealthPort
-      HealthCheckProtocol: HTTP
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: TCP
+      HealthCheckTimeoutSeconds: 10
       HealthyThresholdCount: 3
       Port: !Ref GrpcTestServerPort
       Protocol: TCP
       TargetGroupAttributes:
         - Key: deregistration_delay.timeout_seconds
           Value: 30
+      UnhealthyThresholdCount: 3
       VpcId: !Ref VPC
 
   GrpcTestServerListener:

@@ -49,19 +49,6 @@ func main() {
 		log.Fatal("Need to provide a port via the 'port' enviroment variable")
 	}
 
-	healthPort, exists := os.LookupEnv("healthPort")
-	if !exists {
-		log.Fatal("Need to provide a healthPort via the 'healthPort' enviroment variable")
-	}
-
-	http.HandleFunc("/", httpHandler)
-	go func() {
-		log.Println("Starting health route on :" + healthPort + "/health")
-		if err := http.ListenAndServe(":"+healthPort, nil); err != nil {
-			log.Fatalf("Error starting health route: %v", err)
-		}
-	}()
-
 	serverID := uuid.New().String()
 
 	log.Printf("Starting server with id %q...\n", serverID)

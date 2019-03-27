@@ -37,6 +37,7 @@ func doCall(client hello.HelloServiceClient, message string) (string, error) {
 	res, err := client.SayHello(ctx, req)
 	return res.ServerID, err
 }
+
 func Test_SingleCall(t *testing.T) {
 	client, close := getClient()
 	defer close()

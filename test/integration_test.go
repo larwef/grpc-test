@@ -13,7 +13,7 @@ import (
 
 var address = "<yourNLBaddress>:<yourPort>"
 
-var iterations = 100
+var iterations = 10
 
 func getClient() (hello.HelloServiceClient, func() error) {
 	conn, err := grpc.Dial(address, grpc.WithInsecure())

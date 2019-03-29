@@ -23,10 +23,6 @@ Parameters:
     Type: String
     Default: 0.0.0.0/0
 
-  ServerAccessCIDR:
-    Type: String
-    Default: 0.0.0.0/0
-
   ClusterName:
     Type: String
     Default: grpcCluster
@@ -46,9 +42,6 @@ Parameters:
   SpotFleetMaxCapacity:
     Type: String
     Default: 2
-
-  CertificateArn:
-    Type: String
 
   LogGroupName:
     Type: String
@@ -135,31 +128,18 @@ Resources:
     Properties:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet3
-      
-  # Security Groups
-  PublicSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      VpcId: !Ref VPC
-      GroupDescription: Security group for the public subnet
-      SecurityGroupIngress:
-        - Description: SSH Access
-          CidrIp: !Ref SSHAccessCIDR
-          IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-        - CidrIp: !Ref VpcCIDR
-          IpProtocol: -1
-        - CidrIp: !Ref ServerAccessCIDR
-          IpProtocol: tcp
-          FromPort: 32768
-          ToPort: 65535
 
   # NLB
   PublicNLB:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Subnets: [ !Ref PublicSubnet1, !Ref PublicSubnet2, !Ref PublicSubnet3 ]
+      LoadBalancerAttributes:
+        - Key: load_balancing.cross_zone.enabled
+          Value: true
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+        - !Ref PublicSubnet3
       Type: network
 
   # IAM
@@ -200,6 +180,18 @@ Resources:
         - !Ref ECSInstanceRole
 
   # ECS
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Security group for the public subnet
+      SecurityGroupIngress:
+        - Description: SSH Access
+          CidrIp: !Ref SSHAccessCIDR
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+
   ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
@@ -233,7 +225,7 @@ Resources:
             Monitoring:
               Enabled: true
             SecurityGroups:
-              - GroupId: !Ref PublicSecurityGroup
+              - GroupId: !Ref ECSSecurityGroup
             SubnetId: !Join [",", [!Ref PublicSubnet1, !Ref PublicSubnet2, !Ref PublicSubnet3]]
             TagSpecifications:
               - ResourceType: instance
@@ -262,7 +254,7 @@ Resources:
             Monitoring:
               Enabled: true
             SecurityGroups:
-              - GroupId: !Ref PublicSecurityGroup
+              - GroupId: !Ref ECSSecurityGroup
             SubnetId: !Join [",", [!Ref PublicSubnet1, !Ref PublicSubnet2, !Ref PublicSubnet3]]
             TagSpecifications:
               - ResourceType: instance
@@ -291,7 +283,7 @@ Resources:
             Monitoring:
               Enabled: true
             SecurityGroups:
-              - GroupId: !Ref PublicSecurityGroup
+              - GroupId: !Ref ECSSecurityGroup
             SubnetId: !Join [",", [!Ref PublicSubnet1, !Ref PublicSubnet2, !Ref PublicSubnet3]]
             TagSpecifications:
               - ResourceType: instance
@@ -305,6 +297,15 @@ Resources:
                   echo ECS_CLUSTER=${ClusterName} >> /etc/ecs/ecs.config
 
   # GRPC Test Service
+  GrpcTestServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Security group for grpc server task
+      SecurityGroupIngress:
+        - CidrIp: !Ref VpcCIDR
+          IpProtocol: -1
+
   GrpcTestServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -339,7 +340,7 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: grpc-test-server
-      NetworkMode: bridge
+      NetworkMode: awsvpc
       TaskRoleArn: !GetAtt GrpcTestServerRole.Arn
       ContainerDefinitions:
         - Name: grpc-test-server
@@ -360,7 +361,7 @@ Resources:
               HostPort: !Ref GrpcTestServerPort
               Protocol: tcp
           Privileged: false
-  
+
   GrpcTestServerTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -375,6 +376,7 @@ Resources:
         - Key: deregistration_delay.timeout_seconds
           Value: 30
       UnhealthyThresholdCount: 3
+      TargetType: ip
       VpcId: !Ref VPC
 
   GrpcTestServerListener:
@@ -397,9 +399,18 @@ Resources:
         MaximumPercent: 200
         MinimumHealthyPercent: 50
       DesiredCount: !Ref ServerDesiredCount
+      LaunchType: EC2
       LoadBalancers:
         - ContainerName: grpc-test-server
           ContainerPort: !Ref GrpcTestServerPort
           TargetGroupArn: !Ref GrpcTestServerTargetGroup
-      LaunchType: EC2
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref GrpcTestServerSecurityGroup
+          Subnets:
+            - !Ref PublicSubnet1
+            - !Ref PublicSubnet2
+            - !Ref PublicSubnet3
       TaskDefinition: !Ref GrpcTestServerTask

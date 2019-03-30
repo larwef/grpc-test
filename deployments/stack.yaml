@@ -3,6 +3,9 @@ AWSTemplateFormatVersion: 2010-09-09
 # Set up resources for testing. Use Cloudformation for easy set up an tear down.
 
 Parameters:
+  CertificateARN:
+    Type: String
+
   VpcCIDR:
     Type: String
     Default: 10.0.0.0/16
@@ -371,7 +374,7 @@ Resources:
       HealthCheckTimeoutSeconds: 10
       HealthyThresholdCount: 3
       Port: !Ref GrpcTestServerPort
-      Protocol: TCP
+      Protocol: TLS
       TargetGroupAttributes:
         - Key: deregistration_delay.timeout_seconds
           Value: 30
@@ -383,12 +386,14 @@ Resources:
     DependsOn: GrpcTestServerTargetGroup
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
+      Certificates:
+        - CertificateArn: !Ref CertificateARN
       DefaultActions:
         - Type: forward
           TargetGroupArn: !Ref GrpcTestServerTargetGroup
       LoadBalancerArn: !Ref PublicNLB
       Port: !Ref GrpcTestServerPort
-      Protocol: TCP
+      Protocol: TLS
 
   GrpcTestServerService:
     DependsOn: GrpcTestServerListener

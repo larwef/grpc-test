@@ -4,6 +4,15 @@ AWSTemplateFormatVersion: 2010-09-09
 
 Parameters:
   CertificateARN:
+    Description: ARN for certificate set up in ACM. The certificate should be valid for the domain when setting up a record in Route 53.
+    Type: String
+
+  HostedZoneID:
+    Description: The hosted zone to put the record set for the loadbalancer.
+    Type: String
+
+  RecordSetName:
+    Description: Domain name for alias record set tied to the load balancer. Eg. "grpc.mydomain.com".
     Type: String
 
   VpcCIDR:
@@ -23,6 +32,7 @@ Parameters:
     Default: 10.0.3.0/24
 
   SSHAccessCIDR:
+    Description: SSH access to instances in ECS cluster for debugging purpose.
     Type: String
     Default: 0.0.0.0/0
 
@@ -374,7 +384,7 @@ Resources:
       HealthCheckTimeoutSeconds: 10
       HealthyThresholdCount: 3
       Port: !Ref GrpcTestServerPort
-      Protocol: TLS
+      Protocol: TCP
       TargetGroupAttributes:
         - Key: deregistration_delay.timeout_seconds
           Value: 30
@@ -419,3 +429,14 @@ Resources:
             - !Ref PublicSubnet2
             - !Ref PublicSubnet3
       TaskDefinition: !Ref GrpcTestServerTask
+
+  GrpcEndpointRecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !GetAtt PublicNLB.DNSName
+        EvaluateTargetHealth: false
+        HostedZoneId: !GetAtt PublicNLB.CanonicalHostedZoneID
+      HostedZoneId: !Ref HostedZoneID
+      Name: !Join ["", [!Ref RecordSetName, .]]
+      Type: A

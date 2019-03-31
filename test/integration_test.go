@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"crypto/x509"
 	"log"
 	"strconv"
 	"testing"
@@ -9,14 +10,27 @@ import (
 
 	hello "github.com/larwef/grpc-test/internal/hello"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 var address = "<yourNLBaddress>:<yourPort>"
 
 var iterations = 10
+var insecure = false
 
 func getClient() (hello.HelloServiceClient, func() error) {
-	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	var opts []grpc.DialOption
+	if insecure {
+		opts = append(opts, grpc.WithInsecure())
+	} else {
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			log.Fatalf("unable to get cert pool: %v", err)
+		}
+		opts = append(opts, grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(pool, "")))
+	}
+
+	conn, err := grpc.Dial(address, opts...)
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
@@ -35,7 +49,11 @@ func doCall(client hello.HelloServiceClient, message string) (string, error) {
 	}
 
 	res, err := client.SayHello(ctx, req)
-	return res.ServerID, err
+	if err != nil {
+		return "", err
+	}
+
+	return res.ServerID, nil
 }
 
 func Test_SingleCall(t *testing.T) {
@@ -44,7 +62,7 @@ func Test_SingleCall(t *testing.T) {
 
 	serverID, err := doCall(client, "TestMessage")
 	if err != nil {
-		t.Errorf("Error: %v", err)
+		t.Fatalf("Error: %v", err)
 	}
 
 	t.Logf("Successfull call to server %s", serverID)
@@ -58,7 +76,7 @@ func Test_MultipleCallsOneConnection(t *testing.T) {
 	for i := 0; i < iterations; i++ {
 		serverID, err := doCall(client, "TestMessage "+strconv.Itoa(i))
 		if err != nil {
-			t.Errorf("Error: %v", err)
+			t.Fatalf("Error: %v", err)
 		}
 		servers[serverID]++
 	}
@@ -76,7 +94,7 @@ func Test_MultipleCallsMultipleConnections(t *testing.T) {
 
 		serverID, err := doCall(client, "TestMessage "+strconv.Itoa(i))
 		if err != nil {
-			t.Errorf("Error: %v", err)
+			t.Fatalf("Error: %v", err)
 		}
 		close()
 		servers[serverID]++

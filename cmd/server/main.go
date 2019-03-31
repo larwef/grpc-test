@@ -51,8 +51,6 @@ func main() {
 
 	serverID := uuid.New().String()
 
-	log.Printf("Starting server with id %q...\n", serverID)
-
 	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
@@ -62,6 +60,7 @@ func main() {
 	hello.RegisterHelloServiceServer(server, &HelloServer{serverID: serverID})
 
 	reflection.Register(server)
+	log.Printf("Starting server with id %q...\n", serverID)
 	if err := server.Serve(listener); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"context"
 	"crypto/x509"
 	"flag"
@@ -21,7 +22,6 @@ var message = flag.String("m", "", "Message to send.")
 var insecure = flag.Bool("i", false, "Use with insecure if set.")
 
 func main() {
-	startProgram := time.Now()
 	flag.Parse()
 
 	log.Println("Starting client...")
@@ -56,24 +56,25 @@ func main() {
 
 	client := hello.NewHelloServiceClient(conn)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	i := 0
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	req := &hello.HelloRequest{
-		Message: *message,
+		req := &hello.HelloRequest{
+			Message: *message + ": " + strconv.Itoa(i),
+		}
+	
+		log.Printf("Sending message: %s", req.Message)
+		res, err := client.SayHello(ctx, req)
+		if err != nil {
+			log.Fatalf("Error calling SayHello: %v", err)
+		} else {
+			log.Printf("Response from server %q: %s\n", res.ServerID, res.Response)
+		}
+
+		i++
+
+		time.Sleep(5*time.Second)
 	}
-
-	log.Printf("Sending message: %s", *message)
-	res, err := client.SayHello(ctx, req)
-	if err != nil {
-		log.Fatalf("Error calling SayHello: %v", err)
-	} else {
-		log.Printf("Response from server %q: %s\n", res.ServerID, res.Response)
-	}
-
-	now := time.Now()
-	log.Printf("Call took: %v\n", now.Sub(startProgram))
-	log.Printf("Program took: %v\n", now.Sub(startProgram))
-
-	log.Println("Client exited.")
 }

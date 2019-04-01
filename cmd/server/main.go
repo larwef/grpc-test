@@ -43,7 +43,9 @@ func httpHandler(res http.ResponseWriter, req *http.Request) {
 	io.WriteString(res, "Ok")
 }
 
+var version = "No version provided"
 func main() {
+	log.Printf("Starting grpc-test-server v%s\n", version)
 	port, exists := os.LookupEnv("port")
 	if !exists {
 		log.Fatal("Need to provide a port via the 'port' enviroment variable")

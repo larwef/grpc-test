@@ -54,7 +54,7 @@ Parameters:
 
   SpotFleetMaxCapacity:
     Type: String
-    Default: 2
+    Default: 3
 
   LogGroupName:
     Type: String
@@ -63,6 +63,10 @@ Parameters:
   ServerDesiredCount:
     Type: Number
     Default: 2
+
+  GrpcTestServerVersion:
+    Type: String
+    Default: latest
 
   GrpcTestServerPort:
     Type: Number
@@ -361,7 +365,7 @@ Resources:
           Environment:
             - Name: port
               Value: !Ref GrpcTestServerPort
-          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/grpc-test
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/go-grpc-test-server:${GrpcTestServerVersion}
           LogConfiguration:
             LogDriver: awslogs
             Options:
